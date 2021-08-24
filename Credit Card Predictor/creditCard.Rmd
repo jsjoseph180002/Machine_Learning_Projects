@@ -1,0 +1,316 @@
+---
+title: "Classification Regression Problem"
+author: "Jeremiah Joseph"
+date: "7/12/2021"
+output: pdf_document
+---
+
+
+
+# 1. Introduction
+This data set that I am using is the credit card record for various credit card applications. Using these two data sets I will merge the two to try to model which applicants would be most likely to be good candidates to have a credit card. The data has 438,557 observations. I will run various machine learning algorithms and give analysis and rank which works best on the data. 
+```{r}
+#packages involved in data clearning 
+library(tidyverse)
+library(dplyr)
+
+applicationRecord <- read.csv("application_record.csv")
+creditRecord <- read.csv("credit_record.csv")
+```
+
+# 2. Data Cleaning 
+Link to Data: https://www.kaggle.com/rikdifos/credit-card-approval-prediction \newline \newline
+
+There are some duplicate ids in the application record data set. This will make things difficult to merge. I am first removing these from the data
+```{r}
+#removing duplicates from both data sets
+applicationRecord <- applicationRecord[!duplicated(applicationRecord$ID), ]
+creditRecord <- creditRecord[!duplicated(creditRecord$ID), ]
+```
+
+I am now row binding the credit record to the application record by ID. There are parts that do not overlap, meaning there is no data on specific ids. Due to this I will eliminate those as well from the data set. 
+```{r}
+#right joining the data sets
+df <- right_join(applicationRecord, creditRecord, id="ID")
+
+#removing those with no code gender
+x <- is.na(df$CODE_GENDER)
+df <- df[!x, ]
+
+#removing those with no status
+x <- is.na(df$STATUS)
+df <- df[!x, ]
+```
+
+Now that we have the data set set up we can look at the general structure of the data
+```{r}
+#getting structure
+str(df)
+```
+
+I will now convert predictors to proper data types or get rid of them if they seem unable to be used. 
+```{r}
+#converting gender to factor
+df$CODE_GENDER <- as.factor(df$CODE_GENDER)
+
+#converting car and realty ownership to factor
+df$FLAG_OWN_CAR <- as.factor(df$FLAG_OWN_CAR)
+df$FLAG_OWN_REALTY <- as.factor(df$FLAG_OWN_REALTY)
+
+#converting and the type and status  to factor
+df$NAME_INCOME_TYPE <- as.factor(df$NAME_INCOME_TYPE)
+df$NAME_EDUCATION_TYPE <- as.factor(df$NAME_EDUCATION_TYPE)
+df$NAME_FAMILY_STATUS <- as.factor(df$NAME_FAMILY_STATUS)
+df$NAME_HOUSING_TYPE <- as.factor(df$NAME_HOUSING_TYPE)
+
+#converting all the electronic ownership as factors 
+df$FLAG_MOBIL <- as.factor(df$FLAG_MOBIL)
+df$FLAG_WORK_PHONE<- as.factor(df$FLAG_WORK_PHONE) 
+df$FLAG_PHONE <- as.factor(df$FLAG_PHONE)
+df$FLAG_EMAIL <- as.factor(df$FLAG_EMAIL)
+
+#Deleting occupation type as there are too many types to reasonably make predictor 
+df$OCCUPATION_TYPE <- NULL
+
+#Deleting Days of birth and  as these are given in inconsistent formats and 
+#making days employed more readable
+df$DAYS_BIRTH <- NULL
+#days employed counts backwards so I am multiplying by -1
+df$DAYS_EMPLOYED <- df$DAYS_EMPLOYED * -1
+df$DAYS_EMPLOYED[df$DAYS_EMPLOYED < 0] <- 0
+
+```
+
+Next for the data cleaning we need to convert status to something that can be used for classification. Currently the definition of the column is;  0: 1-29 days past due  1: 30-59 days past due  2: 60-89 days overdue  3: 90-119 days overdue  4: 120-149 days overdue  5: Overdue or bad debts, write-offs for more than 150 days  C: paid off that month  X: No loan for the month. I will make C and X have the value of 1 for good credit candidates and 0 for bad credit candidates.  
+
+```{r}
+#finding values that are good credit candidates
+x <- (df$STATUS == "C" | df$STATUS == "X")
+
+# putting values for status
+df$STATUS <- 0
+df$STATUS[x] <- 1
+
+#converting status to factor 
+df$STATUS <- as.factor(df$STATUS)
+```
+
+# 3. Data Exploration
+
+The first thing I am going to do is see how gender affects the status. When looking at the summary we can see that there is about double the amount of females to men, so they are not evenly distributed. This is important to keep in mind when doing the modeling. Looking at the plot we can see that both genders have a very similar percentage of people who have good status. This gives evidence that gender will likley be a poor predictor of credit card status. 
+```{r}
+#seeing the distribution of males to females
+summary(df[2])
+
+#plotting how gender effects good candidates
+plot(df$CODE_GENDER, df$STATUS, main= "Status Distribution by Gender"
+     , xlab= "Gender", ylab="Status")
+```
+
+Next I will look at how ownership of cars various phones, cars, email, and realty change the status. First when looking at the car the summary shows us a disproportionate amount of people do not own cars. Looking at the sum of how people who do and do not own cars changes status, there is slightly a higher percentage of people who own cars with good status, but not significant. 
+
+```{r}
+#LOOKING AT CAR 
+
+#getting distribution of cars
+summary(df[3])
+
+#getting amount of good credit that do own car and do not own car. 
+sum(df$FLAG_OWN_CAR == "Y" & df$STATUS == 1)
+sum(df$FLAG_OWN_CAR == "N" & df$STATUS == 1)
+
+#plotting cars with status 
+plot(df$FLAG_OWN_CAR, df$STATUS, main= "Status Distribution by Car Ownership"
+     , xlab= "Own Car", ylab="Status")
+
+```
+
+Next with realty, most people actually do own reality. From looking at the data most people owned realty and those who did not tend to on average have better status. 
+```{r}
+# summary of reality 
+summary(df$FLAG_OWN_REALTY)
+
+#getting amount of good credit that do own car and do not own car. 
+sum(df$FLAG_OWN_REALTY == "Y" & df$STATUS == 1)
+sum(df$FLAG_OWN_REALTY == "N" & df$STATUS == 1)
+
+#plotting cars with status 
+plot(df$FLAG_OWN_REALTY, df$STATUS, main= "Status Distribution by Realty Ownership"
+     , xlab= "Own Realty", ylab="Status")
+
+```
+
+Next I will look at different technologies and there impact on credit. When looking at this the vast majority of people own all these. Because of that it will likly serve as bad predictors. 
+```{r}
+summary(df[12:15])
+```
+
+Next I will at how income impacts credit. Looking at the data the mean income of those who have good credit is actually lower than those who have bad credit. The plot shows there is a lot of outliers regardless. This is further shown by the high variance
+```{r}
+#getting mean and variance
+mean(df$AMT_INCOME_TOTAL)
+var(df$AMT_INCOME_TOTAL)
+mean(df$AMT_INCOME_TOTAL[df$STATUS == 1])
+
+#plotting graph
+plot(df$STATUS,df$AMT_INCOME_TOTAL, main= "Income distribution by Status"
+     , xlab= "Status", ylab= "Income")
+```
+
+Next I will check days employed. The days employeed in the data set is right skewed. Typically those with good credit status have been employed for longer. 
+```{r}
+#getting two means. 
+mean(df$DAYS_EMPLOYED)
+mean(df$DAYS_EMPLOYED[df$STATUS == 1])
+#generating plots
+hist(df$DAYS_EMPLOYED, main="Days Employeed Histogram", xlab = "Days Employeed")
+plot(df$STATUS,df$DAYS_EMPLOYED, main= "Days Employeed Distribution by Status"
+     , xlab= "Status", ylab= "Days Employed")
+
+```
+
+Next I will plot some of the more basic personal information. Looking at this some of these graphs tend to show some fluctuation in the distribution of the two statuses. The income type has very little difference across each level. For the education type however, higher education typically seem to be much better candidates. For family status, those in civil marriages and those who are separated tend to be better candidates. Finally with housing types those with co-op apartments, rented apartments, and those with parents tend to be better candidates than the others. Those in office apartments tend to be worse candidates. 
+```{r}
+#plotting income
+plot(df$NAME_INCOME_TYPE, df$STATUS, main= "Status Distribution by Income Type",
+     xlab= "Income Type", ylab="Status")
+#plotting education type
+plot(df$NAME_EDUCATION_TYPE, df$STATUS, main= "Status Distribution by Education Type"
+     , xlab= "Education Type", ylab="Status")
+#plotting family status
+plot(df$NAME_FAMILY_STATUS, df$STATUS, main= "Status Distribution by Family Status"
+     , xlab= "Family Status", ylab="Status")
+#plotting housing type
+plot(df$NAME_HOUSING_TYPE, df$STATUS, main= "Status Distribution by Housing Type"
+     , xlab= "Housing Type", ylab="Status")
+
+```
+
+Finally I will look at the target itself. Looking at the summary and the plot the majority of targets tend to be good credit in this. We have around 75% of the data being of a certain status, so ideally are model will have a higher accuaracy than this. 
+```{r}
+summary(df$STATUS)
+plot(df$STATUS)
+```
+
+
+# 4. Machine Learning Algorithms
+
+## 4.0 Separting between train and test 
+
+```{r}
+#seed for reproducibility
+set.seed(1234)
+
+#getting 75% for train and rest for test
+i <- sample(1:nrow(df), nrow(df) *.75, replace = FALSE)
+train <- df[i,]
+test <- df[-i,]
+```
+
+
+## 4.1 Logistic Regression
+### Feature
+The features I am going to use for the logistic regression model is days employed, total income, housing type, family status, and education type. This is because days employed seems to be tending to be higher for those who have been employed longer according to the graph in section 3. I am also using total income as a feature. This is because there is a slight difference between the income median and mean incomes of those who are good candidates and those who are not. In terms of family status, those who are separated and in civil marriages seem to have higher percentages of success. In terms of housing type, those in office apartments seemed to be less likely than the others to be a good credit option. With education type those in higher degrees tend to be better candidates. Ultimately, though none of these predictors are very good, considering the vast majority of the data set in every catergory is a good credit option, these seem to have to most promising patterns.  
+
+### Analysis of Model 
+Looking at the summary, the model does not seeem to be very good. Looking at the model the vast majority of the predictors had a high p value. That means that the significance level for most of the predictors is low. Really the only exceptions to this are total income, higher education, and municipal and office apartments. Also what is also concerning is the null deviance is not much higher than the residual deviance. 
+```{r}
+#Making logistic regression model
+glm1 <- glm(STATUS~AMT_INCOME_TOTAL+DAYS_EMPLOYED+NAME_EDUCATION_TYPE
+            +NAME_FAMILY_STATUS+NAME_HOUSING_TYPE, data=train, family = "binomial")
+summary(glm1)
+```
+
+When looking at the results with the test data the accuracy is 75.85%. Though this might not seem to bad, considering how unbalanced the data was, this is really poor results. When looking at the confusion matrix, the model predicted positive for everything, meaning the sensitivity was 0. The kappa value was 0, which is evidence of a poor model. Ultimately, the fact that the data itself was very unbalanced with respect to the target and the fact that there was very little patterns in the outcome between the various predictors made this model preform poorly. 
+```{r}
+#Testing model with test data. 
+probslr <- predict(glm1, newdata = test, type="response")
+predlr <- ifelse(probslr > 0.5, 1, 0)
+
+#getting metrics through confusion matrix
+library(caret)
+confusionMatrix(as.factor(predlr), reference=test$STATUS)
+
+```
+
+
+## 4.2 Naive Bayes
+### Features
+The features I am going to use for the Naive Bayes model is days employed, total income, housing type, family status, and education type. This is because days employed seems to be tending to be higher for those who have been employed longer according to the graph in section 3. I am also using total income as a feature. This is because there is a slight difference between the income median and mean incomes of those who are good candidates and those who are not. In terms of family status, those who are separated and in civil marriages seem to have higher percentages of success. In terms of housing type, those in office apartments seemed to be less likely than the others to be a good credit option. With education type those in higher degrees tend to be better candidates. Ultimately, though none of these predictors are very good, considering the vast majority of the data set in every catergory is a good credit option, these seem to have to most promising patterns.  
+
+### Analysis of Model
+This is the results of building the model. As can be seen the model computed the A-priori probabilities and conditional probabilities using Bayes method and assuming independence. 
+```{r}
+#making model 
+library(e1071)
+nb1 <- naiveBayes(STATUS~AMT_INCOME_TOTAL+DAYS_EMPLOYED+NAME_EDUCATION_TYPE
+            +NAME_FAMILY_STATUS+NAME_HOUSING_TYPE, data=train)
+nb1
+```
+
+When looking at testing metrics of our model, the model was still not very good. The accuracy was .7586, but the model still overwhelmingly picked picked positive. This is shown in the sensitivity being approximately .007. This however was an improvement from the logistic regression. The Kappa value was also higher than the logistic regression though it is still extreamly low. 
+```{r}
+#getting predictions and outputing confusion matrix
+prednb <- predict(nb1, newdata = test, type = "class")
+confusionMatrix(prednb, test$STATUS)
+```
+
+## 4.3 KNN
+### Setting up labels
+```{r}
+#Getting the test and the traing labels
+trainLabels <- df[i, 18]
+testLabels <- df[-i, 18]
+```
+
+### Features
+The features I am going to use for the KNN model is days employed, total income, housing type, family status, and education type. This is because days employed seems to be tending to be higher for those who have been employed longer according to the graph in section 3. I am also using total income as a feature. This is because there is a slight difference between the income median and mean incomes of those who are good candidates and those who are not. In terms of family status, those who are separated and in civil marriages seem to have higher percentages of success. In terms of housing type, those in office apartments seemed to be less likely than the others to be a good credit option. With education type those in higher degrees tend to be better candidates. Ultimately, though none of these predictors are very good, considering the vast majority of the data set in every catergory is a good credit option, these seem to have to most promising patterns.  
+
+### Analysis of Model
+We converted the factors to integers to work with the knn algorithm. Though this is not ideal, these were really the only predictors that seemed to be of any use so it is likely worth the negative impacts on model. 
+```{r}
+library(class)
+#for knn to work we need to convert factors to 
+train$NAME_EDUCATION_TYPE <- as.integer(train$NAME_EDUCATION_TYPE)
+train$NAME_FAMILY_STATUS <- as.integer(train$NAME_FAMILY_STATUS)
+train$NAME_HOUSING_TYPE <- as.integer(train$NAME_HOUSING_TYPE)
+test$NAME_EDUCATION_TYPE <- as.integer(test$NAME_EDUCATION_TYPE)
+test$NAME_FAMILY_STATUS <- as.integer(test$NAME_FAMILY_STATUS)
+test$NAME_HOUSING_TYPE <- as.integer(test$NAME_HOUSING_TYPE)
+
+#getting knn model with k=3
+knnPred <- knn(train=train[,c(6,8,9,10,11)], test=test[,c(6,8,9,10,11)], 
+               cl=trainLabels, k=3)
+```
+
+Looking at the results from the model this had the lowest accuracy. This however had by far the highest percentages of negatives that have been counted correctly. Due to this, though the accuracy was smaller and the correct positive percentage went down, this model was able to recognize negative cases at a much better rate than the other algorithms. 
+```{r}
+#getting accuracy
+results <- (knnPred == testLabels)
+acc <- length(which(results==TRUE)) / length(results)
+
+#printing table and accuracy
+table(results, knnPred)
+acc
+```
+
+
+# 5. Results Analysis
+When ranking the algorithms I would rank the KNN the best, then I would rank the Naive Bayes second best and then I would rank the logistic regression the worst. This may be initially surprising as the the KNN had the worst accuracy of the models at approximately .735, but what distinguishes it from the other models is that sensitivity is much higher. The other algorithms worked well because the data set is very unbalanced, but the low sensitivity makes me feel that the under a more balanced data set, the models would preform much more poorly. The reason why I have the Naive Bayes model is second is because it had the highest accuracy but also able to pick up on some of the negative outcomes, though at a very small percentage. The logistic regression to me was the worst. This model though it had a fairly high accuracy, computed everything to be a positive outcome. Looking at the summary listed in the R code below, the minimum probability was .6674, meaning no observation was even really that close to being predicted as a negative value. Due to this, I felt this model was extremely bad, and was a victim of having its coefficients computed from a very unbalanced data set. Under more unbalanced data, this model would likely preform very poorly. \newline \newline 
+
+The reason why I felt that the KNN was able to preform a lot better in recognizing negative values is because the nature of the data. The data was very unbalanced and there was not very clear predictors. Due to this, because KNN looked at the nearest neighbors it was able to recognize the subtitles in the data such as office-homes ownership being less likely to produce a good credit card owner, and higher education being more likly. This likely allowed it to recognize very subtle patterns that were not as obvious, and thus produce better results. \newline \newline
+
+In terms of all the models, none of the models worked very well. None of the models did significantly better than always picking good credit option. Through the data exploration we were able, however, to see cases that there were subtle cases where there were less likely to have good credit ownership like income, certain family statuses, certain housing types, certain education levels, and certain days working. The KNN model also showed results that could be studied more. For future research it would be advantageous to try to collect more balanced data, and try to focus on some of the possible indicators mentioned in the report. 
+
+
+```{r}
+summary(probslr)
+```
+
+
+
+
+
+
+
+
