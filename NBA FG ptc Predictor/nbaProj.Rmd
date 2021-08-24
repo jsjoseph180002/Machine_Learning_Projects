@@ -1,0 +1,285 @@
+---
+title: "NBA Regression Project"
+author: "Jeremiah Joseph"
+date: "7/21/2021"
+output: pdf_document
+---
+
+# 1. Introduction
+
+I will be using the nba season data to try to predict a players field goal percentage in a game given certain predictors. This data set when combined has over 125,000 observations. It has predictors such as role, minutes played, 3 pointers attempted, etc. for every player of every game in that given season. 
+```{r}
+#loading data cleaning packages
+library(tidyverse)
+library(dplyr)
+
+#loading datasets
+nba2021 <- read.csv("season_2021_detailed.csv")
+nba2020 <- read.csv("season_2020_detailed.csv")
+nba2019 <- read.csv("season_2019_detailed.csv")
+nba2018 <- read.csv("season_2018_detailed.csv")
+nba2017 <- read.csv("season_2017_detailed.csv")
+```
+
+# 2. Data Cleaning 
+Link to Dataset: https://www.kaggle.com/amanuelwk/nba-regular-season-data?select=season_2018_basic.csv \newline \newline 
+
+By being a fan of basketball, I know that within the NBA there has been changes to the rules that favor higher scoring over the years. Due to this I will actually add a year column to all the data sets, so we can examine if this is a good factor to consider. 
+```{r}
+#Adding year column to data sets
+nba2021$year <- 2021
+nba2020$year <- 2020
+nba2019$year <- 2019
+nba2018$year <- 2018
+nba2017$year <- 2017
+```
+
+I will now row bind the data sets so we can look at the data in its entirety 
+```{r}
+#row binding data sets. 
+df <- rbind(nba2021,nba2020,nba2019,nba2018,nba2017)
+```
+
+Next I will look at the overall structure of the data to see what changes if any should be made
+```{r}
+str(df)
+```
+
+Next I will convert team, player, and role to factor variables
+```{r}
+#converting some predictors to factors
+df$team <- as.factor(df$team)
+df$player <- as.factor(df$player)
+df$role <- as.factor(df$role)
+df$year <- as.factor(df$year)
+```
+
+There is no need to keep track of defensensive stats for this problem so we can get rid of these
+```{r}
+#elimating defensive columns
+df$STL <- NULL 
+df$BLK <- NULL
+df$DRB <- NULL 
+```
+
+Because fg percentage is fg made divided fg attempted, it would be obvious to predict with those categories, but I want to see if you can use the other aspects of what is going on in a game to determine if the player will be efficient, so I will be deleating the fg column. 
+```{r}
+df$FG <- NULL
+```
+
+We need to get rid of NA's in the target to help with the making of the model and data exploration. 
+```{r}
+#using summary to see if there is any na's 
+summary(df$FG_PCT)
+
+#get rid of na's
+df <- df[!is.na(df$FG_PCT),]
+```
+
+Getting final structure of data
+```{r}
+str(df)
+```
+
+# 3. Data Exploration
+First thing I will do is run a summary on the entire dataframe. Looking at the data One of the first things that jumps out is that there is an extremely wide range on every statistic. For example every percentage has the minimum at 0 and a max at 1. Also there are NA's at every percentage. When looking at the values that are na this means that there was no attempt at that category. Within numerical categories there is a large difference in the categories like points, assist etc. 
+```{r}
+#running summary on data 
+summary(df)
+```
+
+Lets now see how minutes played affected the field goal percentage. When looking at the correlation, it is very low at .128. Looking at the plot, there is not a strong pattern. There also seems to be outliers in the data at 0% and 1% of field goal percentage. This could be useful to consider when looking at other predictors. 
+```{r}
+#Getting the correlation and the plots 
+cor(df$MP, df$FG_PCT)
+plot(df$MP, df$FG_PCT, main = "FG Pct vs Minutes Played", 
+     xlab = "Minutes Played", ylab = "FG Pct")
+```
+Next lets look at points with fg ptc. In this case the correlation is much higher. Again it is clear that the outliers of 1 and 0 fg ptc are distorting the picture of the data. Also the graph when looking at the darkest shades seems to follow some sort of positive line. Due to this I am removing the outlier points and comparing the results
+```{r}
+cor(df$PTS, df$FG_PCT)
+plot(df$PTS, df$FG_PCT, main = "FG Pct vs Points Scored", 
+     xlab = "Points Scored", ylab = "FG Pct")
+
+df <- df[df$FG_PCT != 1.0,]
+df <- df[df$FG_PCT != 0.0,]
+```
+
+Now lets compare the results. The correlation is better and the score makes sense. 
+```{r}
+cor(df$PTS, df$FG_PCT)
+plot(df$PTS, df$FG_PCT, main = "FG Pct vs Points Scored", 
+     xlab = "Points Scored", ylab = "FG Pct")
+```
+
+Another predictor that would make sense is shots attempted. When looking at the variance we can see there is actually a fairly large variance in the field goals attempted. What is interesting when looking at the data is that as the number of shots increases, the numbers tend to almost funnel into around 50%. This means if thre is a large amount of shots, the FG PTC starts to stabilize. 
+```{r}
+var(df$FGA)
+plot(df$FGA, df$FG_PCT, main = "FG PCT vs FG Attempted", 
+     xlab = "FG Attempted", ylab = "FG Pct")
+```
+
+Another thing that could be a predictor is whether a player is reserves or starters. Looking at the plot of the data the reserve has a much higher median where as the variance is higher within the reserves. This makes sense with the above data, as starters will likely take more shots throughout a game, and thus have a more stable average. This can be further emphasized as the mean is higher for the starters, meaning for reserves player typically either did really good or really bad. 
+```{r}
+#Getting mean for reserves and starters
+mean(df$FG_PCT[df$role== "Reserve"])
+mean(df$FG_PCT[df$role== "Starter"])
+
+#plotting ptc by role
+plot(df$role, df$FG_PCT, main= "FG Ptc by Role", xlab= "Role", ylab= "FG Ptc")
+```
+
+Next I will look at year and average fg ptc. Looking at the data despite rule changes that favor offense, the overall fg percentages have kept a very similar distribution, but there does seem to be a heavy difference in median in 2021. 
+```{r}
+#plotting ptc by role
+plot(df$year, df$FG_PCT, main= "FG Ptc by Year", xlab= "Year", ylab= "FG Ptc")
+```
+
+The last two predictors I am going to look at plus/minus and turnovers. Though these do not have anything directly to do with shooting it is possible that if player are being inefficient in these areas it will carry to their efficiency when shooting. When looking around half of the data for plus minus is negative, so we know things are balanced. Looking aat the data the Plus Minus has very little to do with field goal percentage. This makes sence as plus minus is much more indicative of team success. Over hear the turnovers create a funnel shape but the distribution is so wide it is erally not useful. 
+
+```{r}
+#checking how many negative plus minus there are
+length(df$PLUS_MINUS[df$PLUS_MINUS < 0])
+
+#plotting plus minus
+plot(df$PLUS_MINUS, df$FG_PCT, main = "FG PCT vs Plus Minus", 
+     xlab = "Plus Minus", ylab = "FG PCT")
+
+#plotting turnovers 
+plot(df$TOV, df$FG_PCT, main = "FG PCT vs Turnovers", 
+     xlab = "Turnovers", ylab = "FG PCT")
+```
+
+# 4. Data Exploration
+
+## 4.0 Separting between train and test 
+
+```{r}
+#seed for reproducibility
+set.seed(1234)
+
+#getting 75% for train and rest for test
+i <- sample(1:nrow(df), nrow(df) *.75, replace = FALSE)
+train <- df[i,]
+test <- df[-i,]
+
+```
+
+## 4.1 Linear Regression
+### Feature
+For the linear regression the features I will be using are year and points scored. The points increase tends to a somewhat positive relationship with field goal percentage. Also I am hoping that the year of 2021 having a higher median will result in a better regression model. Though the FG attempted has a funnel like relationship, I feel like with the additive nature of linear regression, the bias of the model will make including this actually perform worse.  
+
+### Analysis of Model 
+Looking at the summary of the model The p values for points and the intercept is low, but the R-squared value is really low. This low R-squared value is not a good sign for the model. 
+```{r}
+#making model
+lm1 <- lm(FG_PCT~PTS+year, data = train)
+summary(lm1)
+```
+
+Looking at the plots of the linear model in the residuals vs fitted the line is not horizontal and the points are not evenly spread out, therefore there is variation in the data that our model did not compute. In the Normal Q-Q the dots are not very straight accross the dashed line meaning the residuals are not normally distributed. The scale location line is not very straight and the dots are not very evenly distributed so the data might not be homoscedastic. This all indicates that this may not be the best model. 
+```{r}
+#Plotting lm in 2x2 arrangement 
+par(mfrow=c(2,2)) 
+plot(lm1)
+```
+
+
+The mean squared error when looking at the number is relatively small, but the fact that the target ranges between 0 and 1 is probably a good reason why this is the case. This will be more informative of the effectiveness of the model with other comparisons. The root mean square error was around .149 meaning that on average the error from the real shooting percentage and model shooting percentage was 14.9 percent. The correlation had a very low value at around .386. 
+```{r}
+#Getting predicted values and calculating MSE and RMSE
+predlr <- predict(lm1, newdata = test) 
+mselr <- mean((predlr - test$FG_PCT)^2)
+rmselr <- sqrt(mselr)
+mselr
+rmselr
+print(paste('correlation:', cor(predlr, test$FG_PCT)))
+
+```
+
+## 4.2 Decision Tree
+### Feature
+For the Decision Tree model the features I will be using are year, points scored, and FG attempted . The points increase tends to a somewhat positive relationship with field goal percentage. Also I am hoping that the year of 2021 having a higher median will result in a better regression model. The FG attempted has a funnel like relationship, so hopefully the model will be able to pick up on this when grouping the data. 
+
+### Analysis of Model 
+Looking at the model we can see 16 terminal nodes and residual mean deviance of .01105. 
+```{r}
+#making and plotting model
+library(tree)
+tree1 <- tree(FG_PCT~PTS+year+FGA, data=train)
+summary(tree1)
+plot(tree1)
+text(tree1, cex = .5, pretty=0)
+```
+Looking at the data the mse and rmse was lower than the linear regression model and this model had a relativly high correlation
+```{r}
+#Getting predictions
+pred <- predict(tree1, newdata=test)
+
+#printing mse, rmse, and correlation
+print(paste('correlation:', cor(pred, test$FG_PCT)))
+mse_tree <- mean((pred-test$FG_PCT)^2)
+rmse_tree <- sqrt(mean((pred-test$FG_PCT)^2))
+print(paste('mse:', mse_tree))
+print(paste('rmse:', rmse_tree))
+```
+
+### Pruning Tree 
+```{r}
+#Using cross validation to find the right prune value
+cv_tree <- cv.tree(tree1)
+plot(cv_tree$size, cv_tree$dev, type='b')
+
+#pruing tree
+tree_pruned <- prune.tree(tree1, best=9)
+plot(tree_pruned)
+text(tree_pruned, pretty=0)
+```
+When pruning the tree the correlation went down and the mse and rmse went up, so in this case it was not a good thing for the model.  
+```{r}
+pred_pruned <- predict(tree_pruned, newdata=test)
+cor_pruned <- cor(pred_pruned, test$FG_PCT)
+mse_pruned <- mean((pred_pruned-test$FG_PCT)^2)
+rmse_pruned <- rmse_pruned <- sqrt(mean((pred_pruned-test$FG_PCT)^2))
+cor_pruned
+mse_pruned
+rmse_pruned
+```
+
+## 4.3 KNN Model
+
+### Feature
+For the Decision Tree model the features I will be using are year, points scored, and FG attempted . The points increase tends to a somewhat positive relationship with field goal percentage. Also I am hoping that the year of 2021 having a higher median will result in a better regression model. The FG attempted has a funnel like relationship, so hopefully the model will be able to pick up on this when grouping the data. 
+
+### Analysis of Model 
+```{r}
+library(caret)
+#removing factor for year in the model 
+train$year <- as.integer(train$year)
+test$year <- as.integer(test$year)
+
+#knn model with k =3
+fit <- knnreg(train[,c(6, 19, 21)], train[,7], k=3)
+```
+
+This model has the highest correlation at .837 of all the other models. The MSE and RMSE are lower than any others as well with each guess being about 8.8% off the acutal shooting percentage. 
+```{r}
+#Getting prediction and printing metrics
+predictions <- predict(fit, test[,c(6, 19, 21)]) 
+cor_knn1 <- cor(predictions, test$FG_PCT) 
+mse_knn1 <- mean((predictions - test$FG_PCT)^2) 
+rmse_knn1 <- sqrt(mean((predictions - test$FG_PCT)^2))
+
+print(paste("cor=", cor_knn1))
+mse_knn1
+rmse_knn1
+```
+
+
+# 5. Results Analysis
+
+When ranking the algorithms I would go with the best being KNN and then Decision Tree, and then finally the worst being linear regression. The reason is primarly the MSE and RMSE being lowest within the KNN model, then second less with and the Decision Tree and worst with linear regression. Also the Correlation is lowest with linear regression, then second lowest with decision tree and highest with KNN model. Ultimatley through these metrics as shown above, this KNN model was definatly the best among the three shown. \newline \newline 
+
+The reason why I believe that KNN was able to perform the best is because it was best able to interpret the FG attempted predictor. Because it worked in a funnel shape, when the shot attempts went up it was likely able to see the cases around it well when the shots were high, but not drastically change the model when the shots were down.  \newline \newline
+
+For the big picture what this project was able to show is that effiency as shots go up and as points go up tend to stabalize. What we also shown is there is slight possibility of shooting percentage going up with years, but there is not enough data to really conclude that yet. For further research what would be really helpful is information and data on the oponent. This would allow coaches and teams to add those predictors to know given match-ups how much should players aim to shoot, score, etc. in order to maintain efficiency. 
